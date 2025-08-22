@@ -115,22 +115,19 @@ export default function Page() {
   };
 
   const handleJoinRoom = async () => {
-    setError("");
+    setError('');
     const code = codigo.trim().toUpperCase();
-    if (!code) {
-      setError("Por favor, ingrese un código");
-      return;
-    }
+    if (!code) { setError('Por favor, ingrese un código'); return; }
     try {
       const res = await fetch(`/api/rooms/${code}`);
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Código de sala inválido");
+        setError(data.error || 'No se pudo entrar en la sala');
         return;
       }
       router.push(`/game?code=${code}&host=false&playerId=${data.playerId}`);
     } catch {
-      setError("Error al unirse a la sala");
+      setError('Error al unirse a la sala');
     }
   };
 

@@ -10,7 +10,8 @@ export async function GET(_request: Request, context: { params: { code: string }
     const room = roomStorage.getRoom(code);
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
 
-    return NextResponse.json({ room });
+    const topCard = room.discardPile?.length ? room.discardPile[room.discardPile.length - 1] : null;
+    return NextResponse.json({ room, topCard, joinable: room.status === 'waiting' });
   } catch (err) {
     console.error('[State GET] Error:', err);
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });

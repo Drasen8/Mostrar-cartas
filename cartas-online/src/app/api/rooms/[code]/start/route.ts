@@ -14,12 +14,13 @@ export async function POST(_request: Request, context: { params: { code: string 
 
     // Leer body (cardsPerPlayer opcional)
     let body: any = {};
-    try { body = await _request.json(); } catch (e) { body = {}; }
+    try { body = await _request.json(); } catch {}
     const requested = Number.isFinite(Number(body?.cardsPerPlayer)) ? Math.max(1, Math.floor(Number(body.cardsPerPlayer))) : 7;
+    const gameType: 'juego1' | 'juego2' = body?.gameType === 'juego2' ? 'juego2' : 'juego1';
 
     // Crear baraja y repartir sin repetir
     const deck = createSpanishDeck(); // ya mezclada
-    const numPlayers = (room.players || []).length;
+    const numPlayers = room.players.length;
     if (numPlayers === 0) return NextResponse.json({ error: 'No hay jugadores en la sala' }, { status: 400 });
 
     // Ajustar para no exceder cartas disponibles
@@ -28,23 +29,22 @@ export async function POST(_request: Request, context: { params: { code: string 
     if (cardsPerPlayer <= 0) return NextResponse.json({ error: 'No hay cartas suficientes para repartir' }, { status: 400 });
 
     // Repartir secuencialmente (sin repetir)
-    const updatedPlayers = room.players.map(p => {
-      const cards = deck.splice(0, cardsPerPlayer);
-      return { ...p, cards };
-    });
+    const updatedPlayers = room.players.map(p => ({ ...p, cards: deck.splice(0, cardsPerPlayer) }));
 
     const updatedRoom = {
       ...room,
       status: 'playing' as const,
       players: updatedPlayers,
       currentDeck: deck,
-      discardPile: []
+      discardPile: [],
+      gameType,
+      currentTurnPlayerId: undefined, // aún no hay turnos
+      turnsStarted: false
     };
-
     roomStorage.setRoom(code, updatedRoom);
 
     console.log('[Start] Partida iniciada en', code, 'jugadores:', updatedPlayers.length, 'cartas/player:', cardsPerPlayer);
-    return NextResponse.json({ room: updatedRoom, message: 'Partida iniciada y cartas repartidas', cardsPerPlayer });
+    return NextResponse.json({ room: updatedRoom, message: 'Partida iniciada', cardsPerPlayer });
   } catch (error) {
     console.error('[Start] Error:', error);
     return NextResponse.json({ error: 'Error al iniciar partida' }, { status: 500 });
