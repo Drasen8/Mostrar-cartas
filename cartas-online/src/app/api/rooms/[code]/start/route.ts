@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { roomStorage } from '../../storage';
-import { createSpanishDeck } from '../../../../../types/Card';
+import { createSpanishDeck } from '../../../../../../src/lib/game/cards';
 
 export async function POST(_request: Request, context: { params: { code: string } }) {
   try {

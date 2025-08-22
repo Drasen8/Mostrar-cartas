@@ -15,17 +15,29 @@ export type AnyRoom = {
   discardPile?: any[];
 };
 
-const globalRooms: Record<string, AnyRoom> = {};
+declare global {
+  // Evita que se pierdan datos entre HMR recompiles en dev
+  // eslint-disable-next-line no-var
+  var __rooms: Record<string, AnyRoom> | undefined;
+}
+
+const globalRooms: Record<string, AnyRoom> = globalThis.__rooms || (globalThis.__rooms = {});
 
 export const roomStorage = {
   getRoom(code: string): AnyRoom | undefined {
-    return globalRooms[code];
+    const key = code.toUpperCase();
+    return globalRooms[key];
   },
   setRoom(code: string, room: AnyRoom): void {
-    globalRooms[code] = room;
-    console.log('[Storage] setRoom', code, 'rooms:', Object.keys(globalRooms));
+    const key = code.toUpperCase();
+    globalRooms[key] = room;
+    // console.log('[Storage] rooms:', Object.keys(globalRooms));
   },
   getAllRooms(): AnyRoom[] {
     return Object.values(globalRooms);
+  },
+  deleteRoom(code: string) {
+    const key = code.toUpperCase();
+    delete globalRooms[key];
   }
 };
