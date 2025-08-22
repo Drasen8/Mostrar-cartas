@@ -149,6 +149,37 @@ export default function GamePage() {
 
   const allowDrop = (e: React.DragEvent) => e.preventDefault();
 
+  // Ranking cliente (debe coincidir con backend)
+  const cardRank = (c: any): number => {
+    const order = [3, 4, 5, 6, 7, 10, 11, 12, 1, 2];
+    if (!c) return -1;
+    if (c.value === 2 && c.suit === 'oros') return 100;
+    if (c.value === 2) return 90;
+    const i = order.indexOf(c.value);
+    return i === -1 ? -1 : i;
+  };
+
+  const handlePassTurn = async () => {
+    if (!roomInfo?.code || !roomInfo?.playerId) return;
+    setError('');
+    try {
+      const res = await fetch(`/api/rooms/${roomInfo.code}/pass`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: roomInfo.playerId })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'No se pudo pasar turno');
+        return;
+      }
+      // Avanza turno localmente; el polling lo mantendrá actualizado
+      setCurrentTurn(data.nextTurnPlayerId || null);
+    } catch {
+      setError('Error al pasar turno');
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header superior con info */}
@@ -166,11 +197,34 @@ export default function GamePage() {
                 </span>
               </div>
             </div>
-            {roomInfo.isHost && (
-              <button onClick={handleStartGame} className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition">
-                Iniciar partida
+            <div className="flex items-center gap-3">
+              {roomInfo.isHost && (
+                <button
+                  onClick={handleStartGame}
+                  className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-lg transition"
+                >
+                  Iniciar partida
+                </button>
+              )}
+              <button
+                onClick={handlePassTurn}
+                disabled={!turnsStarted || currentTurn !== roomInfo.playerId}
+                className={`py-2 px-4 rounded-lg shadow-lg font-semibold transition ${
+                  !turnsStarted || currentTurn !== roomInfo.playerId
+                    ? 'bg-gray-500 text-white cursor-not-allowed opacity-70'
+                    : 'bg-orange-500 hover:bg-orange-600 text-white'
+                }`}
+                title={
+                  !turnsStarted
+                    ? 'Aún no hay turnos'
+                    : currentTurn !== roomInfo.playerId
+                      ? 'Espera tu turno'
+                      : 'Pasar turno'
+                }
+              >
+                Pasar turno
               </button>
-            )}
+            </div>
           </div>
         </div>
       ) : (
@@ -232,8 +286,10 @@ export default function GamePage() {
             {myCards.length > 0 ? (
               myCards.map((c, i) => {
                 const isMyTurn = currentTurn === roomInfo?.playerId;
-                // Libre si aún no han empezado los turnos; si ya empezaron, solo en tu turno
-                const allowDrag = !turnsStarted || isMyTurn;
+                const meetsRank =
+                  !turnsStarted || !topCard ? true : cardRank(c) >= cardRank(topCard);
+                const allowDrag = (!turnsStarted || isMyTurn) && meetsRank;
+
                 return (
                   <div
                     key={i}
@@ -245,7 +301,13 @@ export default function GamePage() {
                     className={`bg-white rounded-2xl shadow-2xl w-28 h-40 flex flex-col items-center justify-center border-4 ${
                       allowDrag ? "cursor-grab active:cursor-grabbing border-gray-400" : "cursor-not-allowed opacity-60 border-gray-300"
                     }`}
-                    title={allowDrag ? "Arrastra esta carta a la carta central" : "Espera tu turno"}
+                    title={
+                      !turnsStarted
+                        ? "Libre: aún no hay turnos"
+                        : isMyTurn
+                          ? (meetsRank ? "Arrastra para jugar" : "Necesitas una carta igual o superior")
+                          : "Espera tu turno"
+                    }
                   >
                     <span className="text-xl text-gray-800 font-bold">{c.value}</span>
                     <span className="text-sm text-gray-600 capitalize">{c.suit}</span>

@@ -2,6 +2,18 @@ import { NextResponse } from 'next/server';
 import { roomStorage } from '../../storage';
 import type { Card } from '../../../../../../src/lib/game/cards';
 
+// Ranking: 3 (más floja) ... 2 (más fuerte) y 2 de oros por encima de todo
+function rankCard(card: any): number {
+  const order = [3, 4, 5, 6, 7, 10, 11, 12, 1, 2]; // índice más alto => más fuerte
+  if (!card) return -1;
+  if (card.value === 2 && card.suit === 'oros') return 100; // 2 de oros gana a todo
+  const base = order.indexOf(card.value);
+  if (base === -1) return -1;
+  // Para que 2 (no oros) quede por encima del 1 y debajo del 2 de oros
+  if (card.value === 2) return 90;
+  return base;
+}
+
 export async function POST(request: Request, context: { params: { code: string } }) {
   try {
     const params = await Promise.resolve(context.params);
@@ -26,14 +38,23 @@ export async function POST(request: Request, context: { params: { code: string }
     if (idx === -1) return NextResponse.json({ error: 'La carta no está en tu mano' }, { status: 400 });
 
     const threeBastos = (c: any) => c?.suit === 'bastos' && c?.value === 3;
+    const top = room.discardPile?.length ? room.discardPile[room.discardPile.length - 1] : null;
 
-    // Si ya comenzaron los turnos, valida turno
+    // Si ya comenzaron los turnos, valida turno y fuerza (igual o superior)
     if (room.turnsStarted) {
       if (room.currentTurnPlayerId && room.currentTurnPlayerId !== playerId) {
         return NextResponse.json({ error: 'No es tu turno' }, { status: 403 });
       }
+      if (top) {
+        const topRank = rankCard(top);
+        const playRank = rankCard(card as any);
+        if (playRank < 0) return NextResponse.json({ error: 'Carta inválida' }, { status: 400 });
+        if (playRank < topRank) {
+          return NextResponse.json({ error: 'Debes jugar una carta igual o superior' }, { status: 400 });
+        }
+      }
     }
-    // Si aún no han comenzado los turnos, cualquiera puede jugar
+    // Si aún no han comenzado los turnos, cualquiera puede jugar cualquier carta
 
     // Jugar carta
     const [played] = hand.splice(idx, 1);
