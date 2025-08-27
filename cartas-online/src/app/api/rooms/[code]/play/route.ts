@@ -38,39 +38,126 @@ export async function POST(request: Request, context: { params: { code: string }
     if (idx === -1) return NextResponse.json({ error: 'La carta no está en tu mano' }, { status: 400 });
 
     const threeBastos = (c: any) => c?.suit === 'bastos' && c?.value === 3;
-    const top = room.discardPile?.length ? room.discardPile[room.discardPile.length - 1] : null;
+    const isThreeB = (card as any)?.suit === 'bastos' && (card as any)?.value === 3;
 
-    // Si ya comenzaron los turnos, valida turno y fuerza (igual o superior)
-    if (room.turnsStarted) {
-      if (room.currentTurnPlayerId && room.currentTurnPlayerId !== playerId) {
-        return NextResponse.json({ error: 'No es tu turno' }, { status: 403 });
+    // Asegurar estructuras de ronda y normalizar activos (excluye finishedOrder)
+    room.finishedOrder ||= [];
+    const allIds = room.players.map(p => p.id);
+    const finishedSet = new Set(room.finishedOrder);
+    const activeIds = (
+      room.roundActivePlayerIds && room.roundActivePlayerIds.length
+        ? [...room.roundActivePlayerIds]
+        : allIds
+    ).filter(id => !finishedSet.has(id));
+    room.roundActivePlayerIds = activeIds;
+    if (room.roundNumber == null) room.roundNumber = 1;
+    if (room.roundAwaitingLead == null) room.roundAwaitingLead = !room.turnsStarted;
+
+    const top = room.discardPile?.length ? room.discardPile[room.discardPile.length - 1] : null;
+    const prevTop = top;
+
+    // Inicio de partida en juego1:
+    // - Si NO hay roles/líder asignado: solo se admite 3 de bastos.
+    // - Si hay líder de ronda (ej. 'culo' tras intercambio): ese líder puede abrir con cualquier carta.
+    const isLeadingByRole = !!room.roundAwaitingLead && !!room.currentTurnPlayerId && playerId === room.currentTurnPlayerId;
+
+    if (!room.turnsStarted && room.gameType === 'juego1' && !isLeadingByRole) {
+      if (!isThreeB) {
+        return NextResponse.json({ error: 'La primera carta debe ser el 3 de bastos' }, { status: 400 });
       }
-      if (top) {
-        const topRank = rankCard(top);
-        const playRank = rankCard(card as any);
-        if (playRank < 0) return NextResponse.json({ error: 'Carta inválida' }, { status: 400 });
-        if (playRank < topRank) {
-          return NextResponse.json({ error: 'Debes jugar una carta igual o superior' }, { status: 400 });
+    }
+
+    // Validación de turno
+    if (room.turnsStarted) {
+      if (room.roundAwaitingLead) {
+        if (room.currentTurnPlayerId && room.currentTurnPlayerId !== playerId) {
+          return NextResponse.json({ error: 'Es la salida de ronda y no es tu turno' }, { status: 403 });
+        }
+      } else {
+        if (room.currentTurnPlayerId && room.currentTurnPlayerId !== playerId) {
+          return NextResponse.json({ error: 'No es tu turno' }, { status: 403 });
         }
       }
     }
-    // Si aún no han comenzado los turnos, cualquiera puede jugar cualquier carta
+
+    // Validación de fuerza: solo si hay turnos y no es salida de ronda
+    if (room.turnsStarted && !room.roundAwaitingLead && top) {
+      const topRank = rankCard(top);
+      const playRank = rankCard(card as any);
+      if (playRank < 0) return NextResponse.json({ error: 'Carta inválida' }, { status: 400 });
+      if (playRank < topRank) return NextResponse.json({ error: 'Debes jugar una carta igual o superior' }, { status: 400 });
+    }
 
     // Jugar carta
     const [played] = hand.splice(idx, 1);
     room.players[playerIdx] = { ...player, cards: hand };
     room.discardPile = [...(room.discardPile || []), played];
 
-    // Gestión de turnos:
-    // - Si aún no han empezado y se ha jugado 3 de bastos, activamos turnos y empieza el siguiente jugador.
-    // - Si ya habían empezado, rotamos al siguiente jugador.
+    // NUEVO: si este jugador se queda sin cartas, se añade al finishedOrder y sale de la ronda
+    room.finishedOrder ||= [];
+    if (hand.length === 0 && !room.finishedOrder.includes(playerId)) {
+      room.finishedOrder.push(playerId);
+      // sácalo de la ronda actual si está
+      if (Array.isArray(room.roundActivePlayerIds)) {
+        room.roundActivePlayerIds = room.roundActivePlayerIds.filter(id => id !== playerId);
+      }
+    }
+
+    // Pasos de turno (incluye salto por mismo número)
+    let steps = 0;
     if (!room.turnsStarted && threeBastos(played)) {
       room.turnsStarted = true;
-      const nextIdx = (playerIdx + 1) % room.players.length;
-      room.currentTurnPlayerId = room.players[nextIdx].id;
+      room.roundAwaitingLead = false; // ya hay carta de salida en la ronda
+      steps = 1;
+    } else if (room.turnsStarted && room.roundAwaitingLead) {
+      room.roundAwaitingLead = false; // salida de nueva ronda
+      steps = 1;
     } else if (room.turnsStarted) {
-      const nextIdx = (playerIdx + 1) % room.players.length;
-      room.currentTurnPlayerId = room.players[nextIdx].id;
+      steps = 1;
+    }
+
+    if (room.turnsStarted && prevTop && prevTop.value === (played as any).value) {
+      steps += 1; // salto por mismo número
+    }
+
+    // Rotación solo entre jugadores activos en la ronda (reutiliza activeIds)
+    if (room.turnsStarted && activeIds.length > 0) {
+      const pos = activeIds.indexOf(playerId);
+      if (pos !== -1) {
+        const nextIdx = (pos + steps) % activeIds.length;
+        room.currentTurnPlayerId = activeIds[nextIdx];
+      } else if (room.currentTurnPlayerId && !activeIds.includes(room.currentTurnPlayerId)) {
+        room.currentTurnPlayerId = activeIds[0];
+      }
+    }
+
+    // ¿Fin de ronda? si queda un único activo (los demás pasaron o acabaron)
+    let roundEnded = false;
+    if (room.turnsStarted && room.roundActivePlayerIds && room.roundActivePlayerIds.length === 1) {
+      const leaderId = room.roundActivePlayerIds[0];
+      room.roundNumber = (room.roundNumber ?? 0) + 1;
+      // Siguiente ronda: todos los que aún no han acabado vuelven a estar activos
+      const remainingIds = room.players
+        .map(p => p.id)
+        .filter(id => !(room.finishedOrder||[]).includes(id));
+      room.roundActivePlayerIds = remainingIds;
+      room.roundAwaitingLead = true;
+      room.currentTurnPlayerId = leaderId;
+      roundEnded = true;
+    }
+
+    // NUEVO: si solo queda un jugador con cartas, ciérralo como “culo”
+    const total = room.players.length;
+    const finished = room.finishedOrder.length;
+    if (finished === total - 1) {
+      const remaining = room.players
+        .map(p => p.id)
+        .find(id => !room.finishedOrder!.includes(id));
+      if (remaining) {
+        room.finishedOrder!.push(remaining); // último = culo
+        // opcional: puedes marcar status 'finished' si quieres cerrar la mano
+        // room.status = 'finished';
+      }
     }
 
     roomStorage.setRoom(code, room);
@@ -81,7 +168,11 @@ export async function POST(request: Request, context: { params: { code: string }
       topCard,
       myCards: hand,
       turnsStarted: !!room.turnsStarted,
-      nextTurnPlayerId: room.currentTurnPlayerId || null
+      nextTurnPlayerId: room.currentTurnPlayerId || null,
+      roundEnded,
+      roundNumber: room.roundNumber,
+      roundAwaitingLead: !!room.roundAwaitingLead,
+      activeIds: room.roundActivePlayerIds
     });
   } catch (err) {
     console.error('[Play] Error:', err);

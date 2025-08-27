@@ -15,8 +15,12 @@ export type AnyRoom = {
   discardPile?: any[];
   gameType?: 'juego1' | 'juego2';
   currentTurnPlayerId?: string;
-  // NUEVO: indica si ya comenzaron los turnos (cuando se tiró 3 de bastos)
   turnsStarted?: boolean;
+  roundNumber?: number;
+  roundActivePlayerIds?: string[];
+  roundAwaitingLead?: boolean;
+  // NUEVO: orden en el que los jugadores se quedan sin cartas (ids)
+  finishedOrder?: string[];
 };
 
 declare global {
