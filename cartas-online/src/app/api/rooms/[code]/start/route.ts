@@ -2,6 +2,16 @@ import { NextResponse } from 'next/server';
 import { roomStorage } from '../../storage';
 import { createSpanishDeck } from '../../../../../../src/lib/game/cards';
 
+// Ranking: 3 (peor) ... 2 (mejor) con 2 de oros como la más fuerte
+function rankCard(card: any): number {
+  const order = [3, 4, 5, 6, 7, 10, 11, 12, 1, 2];
+  if (!card) return -1;
+  if (card.value === 2 && card.suit === 'oros') return 100;
+  if (card.value === 2) return 90;
+  const i = order.indexOf(card.value);
+  return i === -1 ? -1 : i;
+}
+
 export async function POST(_request: Request, context: { params: { code: string } }) {
   try {
     const params = await Promise.resolve(context.params);
@@ -10,8 +20,15 @@ export async function POST(_request: Request, context: { params: { code: string 
 
     const room = roomStorage.getRoom(code);
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
-    if (room.status === 'playing') return NextResponse.json({ error: 'Partida ya iniciada' }, { status: 400 });
 
+    if (room.status === 'playing') {
+      return NextResponse.json({ error: 'La mano actual sigue en juego' }, { status: 409 });
+    }
+
+    // NO bloqueamos si está 'playing': esto inicia una nueva mano
+    // if (room.status === 'playing') return NextResponse.json({ error: 'Partida ya iniciada' }, { status: 400 });
+
+    // Leer body
     let body: any = {};
     try { body = await _request.json(); } catch {}
     const gameType: 'juego1' | 'juego2' = body?.gameType === 'juego2' ? 'juego2' : 'juego1';
@@ -21,7 +38,7 @@ export async function POST(_request: Request, context: { params: { code: string 
       return NextResponse.json({ error: 'Se necesitan al menos 4 jugadores para empezar' }, { status: 400 });
     }
 
-    // Reparte TODO el mazo en ronda
+    // Repartir TODO el mazo en ronda
     const deck = createSpanishDeck();
     const updatedPlayers = room.players.map(p => ({ ...p, cards: [] as any[] }));
     let i = 0;
@@ -30,7 +47,7 @@ export async function POST(_request: Request, context: { params: { code: string 
       i++;
     }
 
-    // Roles desde la mano anterior (si existe ranking completo)
+    // Roles desde la mano anterior
     const prevOrder = Array.isArray(room.finishedOrder) ? [...room.finishedOrder] : [];
     const allIds = updatedPlayers.map(p => p.id);
     let roles: { presidente?: string; vicepresidente?: string; viceculo?: string; culo?: string } = {};
@@ -41,8 +58,7 @@ export async function POST(_request: Request, context: { params: { code: string 
       if (prevOrder.length >= 3) roles.viceculo = prevOrder[prevOrder.length - 2];
       roles.culo = prevOrder[prevOrder.length - 1];
 
-      // Intercambios:
-      // - Presidente <-> Culo (2): presidente da 2 peores; culo da 2 mejores
+      // Intercambios Presidente <-> Culo (2)
       const pres = updatedPlayers.find(p => p.id === roles.presidente);
       const culo = updatedPlayers.find(p => p.id === roles.culo);
       if (pres && culo) {
@@ -50,22 +66,13 @@ export async function POST(_request: Request, context: { params: { code: string 
         const culoSorted = [...(culo.cards || [])].sort((a, b) => rankCard(a) - rankCard(b));
         const givePresWorst = presSorted.slice(0, Math.min(2, presSorted.length));
         const giveCuloBest = culoSorted.slice(-Math.min(2, culoSorted.length));
-
-        // quitar de manos
         const removeFrom = (hand: any[], toRemove: any[]) =>
           hand.filter(h => !toRemove.some(r => r.suit === h.suit && r.value === h.value));
-
-        pres.cards = [
-          ...removeFrom(pres.cards || [], givePresWorst),
-          ...giveCuloBest
-        ];
-        culo.cards = [
-          ...removeFrom(culo.cards || [], giveCuloBest),
-          ...givePresWorst
-        ];
+        pres.cards = [...removeFrom(pres.cards || [], givePresWorst), ...giveCuloBest];
+        culo.cards = [...removeFrom(culo.cards || [], giveCuloBest), ...givePresWorst];
       }
 
-      // - Vicepresidente <-> Viceculo (1): VP da 1 peor; VC da 1 mejor
+      // Intercambios VP <-> VC (1)
       const vp = updatedPlayers.find(p => p.id === roles.vicepresidente);
       const vc = updatedPlayers.find(p => p.id === roles.viceculo);
       if (vp && vc) {
@@ -73,39 +80,27 @@ export async function POST(_request: Request, context: { params: { code: string 
         const vcSorted = [...(vc.cards || [])].sort((a, b) => rankCard(a) - rankCard(b));
         const vpWorst = vpSorted.slice(0, Math.min(1, vpSorted.length));
         const vcBest = vcSorted.slice(-Math.min(1, vcSorted.length));
-
         const removeFrom = (hand: any[], toRemove: any[]) =>
           hand.filter(h => !toRemove.some(r => r.suit === h.suit && r.value === h.value));
-
-        vp.cards = [
-          ...removeFrom(vp.cards || [], vpWorst),
-          ...vcBest
-        ];
-        vc.cards = [
-          ...removeFrom(vc.cards || [], vcBest),
-          ...vpWorst
-        ];
+        vp.cards = [...removeFrom(vp.cards || [], vpWorst), ...vcBest];
+        vc.cards = [...removeFrom(vc.cards || [], vcBest), ...vpWorst];
       }
     }
 
-    // Construir sala nueva
+    // Construir nueva mano
     const updatedRoom = {
       ...room,
       status: 'playing' as const,
       players: updatedPlayers,
-      currentDeck: [],           // todo repartido
+      currentDeck: [],
       discardPile: [],
       gameType,
-      // Turnos/rondas
       turnsStarted: false,
       roundNumber: (room.roundNumber ?? 0) + 1,
       roundActivePlayerIds: updatedPlayers.map(p => p.id),
       roundAwaitingLead: true,
-      // Inicio por roles: si hay "culo" definido, empieza él
-      currentTurnPlayerId: roles.culo || undefined,
-      // Reiniciar ranking para esta nueva mano
+      currentTurnPlayerId: roles.culo || undefined, // si hay roles, empieza el Culo
       finishedOrder: [] as string[],
-      // Guardar roles (opcional, útil para UI)
       roles
     };
 
@@ -113,8 +108,8 @@ export async function POST(_request: Request, context: { params: { code: string 
     return NextResponse.json({
       room: updatedRoom,
       message: prevOrder.length === allIds.length
-        ? 'Partida iniciada con intercambio por roles. Empieza el Culo.'
-        : 'Partida iniciada. Empieza según reglas del juego.'
+        ? 'Nueva mano iniciada con intercambio por roles. Empieza el Culo.'
+        : 'Nueva mano iniciada.'
     });
   } catch (error) {
     console.error('[Start] Error:', error);
