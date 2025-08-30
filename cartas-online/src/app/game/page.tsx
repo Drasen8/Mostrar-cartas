@@ -468,20 +468,24 @@ export default function GamePage() {
                 let allowDrag = false;
 
                 if (!turnsStarted && gameType === 'juego1') {
-                  // Primera jugada de la partida: solo 3 de bastos (si no hay líder por roles)
-                  allowDrag = c.value === 3 && c.suit === 'bastos';
+                  // NUEVO: si hay líder por roles (culo) y eres tú, puedes abrir con lo que quieras (respeta selector/combo)
+                  const isLeadingByRole = roundAwaitingLead && !!currentTurn && isMyTurn;
+                  if (isLeadingByRole) {
+                    allowDrag = twoOros ? true : countSame >= selectedComboSize;
+                  } else {
+                    // Sin líder por roles (primera mano de la partida): solo 3 de bastos (o combos de treses que incluyan 3 de bastos; lo valida el backend)
+                    allowDrag = c.value === 3 && c.suit === 'bastos';
+                  }
                 } else if (turnsStarted && roundAwaitingLead) {
-                  // Abriendo ronda: solo el líder puede arrastrar
+                  // Abriendo ronda normal: solo el líder puede arrastrar
                   if (isMyTurn) {
-                    if (twoOros) allowDrag = true;
-                    else allowDrag = countSame >= selectedComboSize;
+                    allowDrag = twoOros ? true : countSame >= selectedComboSize;
                   }
                 } else if (turnsStarted) {
-                  // Ronda en curso: exige combo de tamaño roundComboSize y rango >= top
+                  // Ronda en curso: exige combo del tamaño de la ronda y rango >= top (salvo 2 de oros)
                   if (isMyTurn) {
-                    if (twoOros) {
-                      allowDrag = true;
-                    } else {
+                    if (twoOros) allowDrag = true;
+                    else {
                       const meetsCount = countSame >= roundComboSize;
                       const meetsRank = !topCard ? true : cardRank(c) >= cardRank(topCard);
                       allowDrag = meetsCount && meetsRank;

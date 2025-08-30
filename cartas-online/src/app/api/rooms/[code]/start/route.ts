@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server';
 import { roomStorage } from '../../storage';
 import { createSpanishDeck } from '../../../../../../src/lib/game/cards';
 
+// Barajar Fisher–Yates (local a este archivo)
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 // Ranking: 3 (peor) ... 2 (mejor) con 2 de oros como la más fuerte
 function rankCard(card: any): number {
   const order = [3, 4, 5, 6, 7, 10, 11, 12, 1, 2];
@@ -25,10 +34,6 @@ export async function POST(_request: Request, context: { params: { code: string 
       return NextResponse.json({ error: 'La mano actual sigue en juego' }, { status: 409 });
     }
 
-    // NO bloqueamos si está 'playing': esto inicia una nueva mano
-    // if (room.status === 'playing') return NextResponse.json({ error: 'Partida ya iniciada' }, { status: 400 });
-
-    // Leer body
     let body: any = {};
     try { body = await _request.json(); } catch {}
     const gameType: 'juego1' | 'juego2' = body?.gameType === 'juego2' ? 'juego2' : 'juego1';
@@ -38,8 +43,8 @@ export async function POST(_request: Request, context: { params: { code: string 
       return NextResponse.json({ error: 'Se necesitan al menos 4 jugadores para empezar' }, { status: 400 });
     }
 
-    // Repartir TODO el mazo en ronda
-    const deck = createSpanishDeck();
+    // Repartir TODO el mazo en ronda (barajado)
+    const deck = shuffle(createSpanishDeck());
     const updatedPlayers = room.players.map(p => ({ ...p, cards: [] as any[] }));
     let i = 0;
     while (deck.length > 0) {

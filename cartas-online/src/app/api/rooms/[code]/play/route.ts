@@ -23,18 +23,42 @@ export async function POST(request: Request, context: { params: { code: string }
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
     if (room.status !== 'playing') return NextResponse.json({ error: 'La partida no está en curso' }, { status: 400 });
 
-    let body: { playerId?: string; card?: Card; cards?: Card[]; comboSize?: number } = {};
+    let body: any = {};
     try { body = await request.json(); } catch {}
-    const { playerId } = body;
+
+    const playerId: string | undefined = body?.playerId;
     if (!playerId) return NextResponse.json({ error: 'Falta playerId' }, { status: 400 });
 
-    // Normaliza combo de entrada
+    // Normaliza cartas recibidas (soporta combos)
     const inputCards: any[] = Array.isArray(body.cards)
       ? body.cards
       : body.card
         ? [body.card]
         : [];
-    if (inputCards.length === 0) return NextResponse.json({ error: 'Falta carta(s) a jugar' }, { status: 400 });
+    if (inputCards.length === 0) {
+      return NextResponse.json({ error: 'Falta carta(s) a jugar' }, { status: 400 });
+    }
+
+    // Detecta si hay líder por roles (culo abre mano con lo que quiera)
+    const isLeadingByRole =
+      !!(room as any).roundAwaitingLead &&
+      !!room.currentTurnPlayerId &&
+      playerId === room.currentTurnPlayerId;
+
+    // FIX: booleano compatible con abrir con 1/2/3/4 treses siempre que incluya el 3 de bastos
+    const isThreeB = inputCards.length > 0
+      && inputCards.every(c => c?.value === 3)
+      && inputCards.some(c => c?.value === 3 && c?.suit === 'bastos');
+
+    // Validación de inicio de partida (juego1):
+    // - Si NO hay líder por roles: exige que la primera jugada sean treses e incluya 3 de bastos (permite pareja/trío/cuatro).
+    // - Si hay líder por roles: puede abrir con cualquier carta/combo.
+    if (!room.turnsStarted && room.gameType === 'juego1' && !isLeadingByRole && !isThreeB) {
+      return NextResponse.json(
+        { error: 'La primera jugada debe incluir el 3 de bastos y solo treses (puedes pareja/trío/cuatro).' },
+        { status: 400 }
+      );
+    }
 
     // Estructuras de ronda
     room.roundComboSize = Number.isFinite((room as any).roundComboSize) ? (room as any).roundComboSize : 1;
@@ -62,11 +86,13 @@ export async function POST(request: Request, context: { params: { code: string }
         return NextResponse.json({ error: 'No es tu turno' }, { status: 403 });
       }
     } else {
-      // Inicio partida juego1: si no hay roles liderando, solo 3 de bastos
-      const isThreeB = inputCards.length === 1 && inputCards[0]?.suit === 'bastos' && inputCards[0]?.value === 3;
-      const isLeadingByRole = !!room.roundAwaitingLead && !!room.currentTurnPlayerId && playerId === room.currentTurnPlayerId;
-      if (room.gameType === 'juego1' && !isLeadingByRole && !isThreeB) {
-        return NextResponse.json({ error: 'La primera carta debe ser el 3 de bastos' }, { status: 400 });
+      // Primera mano (juego1) sin roles: permite 1-4 treses que incluyan el 3 de bastos
+      const isFirstHandNoRoles = room.gameType === 'juego1' && !isLeadingByRole;
+      if (isFirstHandNoRoles && !isThreeB) {
+        return NextResponse.json(
+          { error: 'La primera jugada debe incluir el 3 de bastos y solo treses (puedes pareja/trío/cuatro).' },
+          { status: 400 }
+        );
       }
     }
 
@@ -86,7 +112,6 @@ export async function POST(request: Request, context: { params: { code: string }
       if (!singleTwoOros && inputCards.length !== requiredSize) {
         return NextResponse.json({ error: `Debes jugar ${requiredSize} carta(s)` }, { status: 400 });
       }
-      // Igual o superior por valor
       if (!singleTwoOros && prevValue != null) {
         const topRank = rankCard({ value: prevValue, suit: 'x' });
         const playRank = rankCard(inputCards[0]);
@@ -95,10 +120,14 @@ export async function POST(request: Request, context: { params: { code: string }
         }
       }
     } else {
-      // Abriendo ronda: acepta 1,2,3,4 (size proporcionado por el cliente o el array)
-      const wantedSize = Math.max(1, Math.min(4, Number(body.comboSize) || inputCards.length));
-      if (!singleTwoOros && inputCards.length !== wantedSize) {
-        return NextResponse.json({ error: `Debes jugar exactamente ${wantedSize} carta(s)` }, { status: 400 });
+      // Abriendo ronda
+      const isFirstHandNoRoles = !room.turnsStarted && room.gameType === 'juego1' && !isLeadingByRole;
+      // En la primera mano sin roles, si juegas tres(es) válidos, acepta tamaño 1..4 sin exigir comboSize
+      if (!(isFirstHandNoRoles && isThreeB)) {
+        const wantedSize = Math.max(1, Math.min(4, Number(body.comboSize) || inputCards.length));
+        if (!singleTwoOros && inputCards.length !== wantedSize) {
+          return NextResponse.json({ error: `Debes jugar exactamente ${wantedSize} carta(s)` }, { status: 400 });
+        }
       }
     }
 
