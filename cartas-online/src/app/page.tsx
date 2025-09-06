@@ -19,6 +19,7 @@ export default function Page() {
   const [myCards, setMyCards] = useState<any[]>([]);
   const [cardsCount, setCardsCount] = useState<number>(7);
   const [codigo, setCodigo] = useState("");
+  const [nombre, setNombre] = useState(''); // NUEVO
 
   // Inicializa desde la URL (?code=...&host=...&playerId=...)
   useEffect(() => {
@@ -119,12 +120,15 @@ export default function Page() {
     const code = codigo.trim().toUpperCase();
     if (!code) { setError('Por favor, ingrese un código'); return; }
     try {
-      const res = await fetch(`/api/rooms/${code}`);
+      const url = new URL(`/api/rooms/${code}`, window.location.origin);
+      if (nombre.trim()) url.searchParams.set('name', nombre.trim());
+      const res = await fetch(url.toString());
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'No se pudo entrar en la sala');
         return;
       }
+      // Redirige con playerId (el nombre lo guarda el backend)
       router.push(`/game?code=${code}&host=false&playerId=${data.playerId}`);
     } catch {
       setError('Error al unirse a la sala');
@@ -134,13 +138,17 @@ export default function Page() {
   const handleCreateRoom = async () => {
     setError("");
     try {
-      const res = await fetch("/api/rooms", { method: "POST" });
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nombre.trim() || undefined })
+      });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Error al crear la sala");
         return;
       }
-      router.push(`/game?code=${data.code}&host=true&playerId=${data.room.hostId}`);
+      router.push(`/game?code=${data.code}&host=true&playerId=${data.playerId}`);
     } catch {
       setError("Error al crear la sala");
     }
@@ -239,6 +247,15 @@ export default function Page() {
           <h1 className="text-2xl font-bold mb-6 text-gray-800 text-center">Entrar o crear sala</h1>
 
           <div className="w-full space-y-4">
+            {/* Nombre opcional */}
+            <input
+              type="text"
+              placeholder="Tu nombre (opcional)"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-green-600 transition"
+            />
+
             <input
               type="text"
               placeholder="Inserte código"

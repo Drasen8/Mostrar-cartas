@@ -1,18 +1,24 @@
 // filepath: c:\Users\Marc\Desktop\Mostrar cartas\cartas-online\src\lib\api\rooms.ts
 import type { Room } from '../../types/Room';
 
-export async function createRoom() {
-  const res = await fetch('/api/rooms', { method: 'POST' });
+export async function createRoom(name?: string) {
+  const res = await fetch('/api/rooms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name?.trim() || undefined })
+  });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Error al crear la sala');
-  return data as { code: string; room: Room };
+  return data as { code: string; room: Room; playerId: string; name?: string };
 }
 
-export async function joinRoom(code: string) {
-  const res = await fetch(`/api/rooms/${code}`);
+export async function joinRoom(code: string, name?: string) {
+  const url = new URL(`/api/rooms/${code}`, window.location.origin);
+  if (name?.trim()) url.searchParams.set('name', name.trim());
+  const res = await fetch(url.toString());
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Código de sala inválido');
-  return data as { room: Room; playerId: string; totalPlayers: number };
+  return data as { room: Room; playerId: string; totalPlayers: number; name?: string };
 }
 
 export async function startGame(code: string, cardsPerPlayer = 7) {

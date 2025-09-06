@@ -143,12 +143,21 @@ export async function GET(_request: Request, context: { params: { code: string }
       };
     });
 
+    const playersTable = (room.players || []).map((p: any, idx: number) => ({
+      id: p.id,
+      name: p?.name || `Jugador ${idx + 1}`,
+      cardsCount: Array.isArray(p?.cards) ? p.cards.length : 0,
+      isCurrentTurn: room.currentTurnPlayerId === p.id,
+      role: (roles as any)?.[p.id] || null,
+    }));
+
     return NextResponse.json({
       room,
       topCard,
       joinable: room.status === 'waiting',
       ranking,
       roles,
+      playersTable, // NUEVO
     });
   } catch (err) {
     console.error('[State GET] Error:', err);

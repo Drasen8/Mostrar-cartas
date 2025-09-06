@@ -6,77 +6,66 @@ function generateRoomCode(): string {
   const codeLength = 6;
   let code = '';
   for (let i = 0; i < codeLength; i++) {
-    const randomIndex = Math.floor(Math.random() * characters.length);
+    const randomIndex = Math.floor(Math.random() * (i + 1 === 0 ? 1 : characters.length));
     code += characters[randomIndex];
   }
   if (roomStorage.getRoom(code)) return generateRoomCode();
   return code;
 }
 
-// POST /api/rooms - Crear nueva sala
-export async function POST() {
+// Helpers nombres únicos
+function escRe(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function resolveUniqueName(desired: string | undefined, existing: string[], fallback: string): string {
+  const base = (desired || '').trim();
+  if (!base) return fallback;
+  let max = 0;
+  let hasExact = false;
+  const re = new RegExp(`^${escRe(base)}(\\d+)?$`);
+  for (const n of existing) {
+    const m = n.match(re);
+    if (!m) continue;
+    if (!m[1]) { hasExact = true; max = Math.max(max, 1); continue; }
+    const num = parseInt(m[1], 10);
+    if (!Number.isNaN(num)) max = Math.max(max, num);
+  }
+  if (!hasExact) return base;
+  return `${base}${max + 1}`;
+}
+
+// POST /api/rooms - Crear nueva sala (acepta { name })
+export async function POST(request: Request) {
   try {
+    let body: any = {};
+    try { body = await request.json(); } catch {}
+    const desiredName: string | undefined = body?.name;
+
     const roomCode = generateRoomCode();
     const hostId = crypto.randomUUID();
     const newRoom = {
       code: roomCode,
       hostId,
-      // Añadimos el host como primer jugador para que reciba cartas al iniciar
       players: [{
         id: hostId,
-        joinedAt: new Date().toISOString()
+        joinedAt: new Date().toISOString(),
+        name: '' as string | undefined
       }],
       status: 'waiting' as const,
       createdAt: new Date().toISOString(),
     };
 
+    const defaultName = `Jugador 1`;
+    const uniqueName = resolveUniqueName(desiredName, [], defaultName);
+    newRoom.players[0].name = uniqueName;
+
     roomStorage.setRoom(roomCode, newRoom);
-    console.log('[POST] Room created:', roomCode);
-    return NextResponse.json({ code: roomCode, room: newRoom });
+    return NextResponse.json({ code: roomCode, room: newRoom, playerId: hostId, name: uniqueName });
   } catch (error) {
     console.error('[POST] Error:', error);
     return NextResponse.json({ error: 'Error al crear la sala' }, { status: 500 });
   }
 }
 
-// GET /api/rooms/:code - Unirse a una sala
-export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const code = url.pathname.split('/').pop()?.toUpperCase();
-  
-  console.log('Buscando sala:', code);
-  console.log('Salas disponibles:', Object.keys(roomStorage));
-
-  if (!code || !roomStorage[code]) {
-    return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
-  }
-
-  return NextResponse.json({ room: roomStorage[code] });
+// GET /api/rooms - No soportado (usar /api/rooms/{code})
+export async function GET() {
+  return NextResponse.json({ error: 'Usa /api/rooms/{code} para unirte' }, { status: 405 });
 }
-
-// Función para manejar la unión a una sala
-const handleJoinRoom = async (codigo: string, setError: (msg: string) => void, setShowModal: (show: boolean) => void, setRoomInfo: (info: { code: string, players: number, isHost: boolean }) => void) => {
-  if (!codigo.trim()) {
-    setError('Por favor, ingrese un código');
-    return;
-  }
-
-  try {
-    const response = await fetch(`/api/rooms/${codigo.toUpperCase()}`);
-    const data = await response.json();
-    
-    if (!response.ok) {
-      setError(data.error || 'Código de sala inválido');
-      return;
-    }
-    
-    setShowModal(false);
-    setRoomInfo({
-      code: codigo.toUpperCase(),
-      players: data.room.players.length + 1,
-      isHost: false
-    });
-  } catch (err) {
-    setError('Error al unirse a la sala');
-  }
-};

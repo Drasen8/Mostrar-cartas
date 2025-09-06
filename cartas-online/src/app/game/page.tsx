@@ -26,6 +26,10 @@ export default function GamePage() {
   const [turnsStarted, setTurnsStarted] = useState<boolean>(false);
   const [currentTurn, setCurrentTurn] = useState<string | null>(null);
   const [gameType, setGameType] = useState<'juego1' | 'juego2'>('juego1');
+  const [playersTable, setPlayersTable] = useState<{id:string; name:string; cardsCount:number; isCurrentTurn:boolean; role?:string|null}[]>([]);
+  const [playerName, setPlayerName] = useState<string>("");
+  const [roomCode, setRoomCode] = useState<string>("");
+  const [playerId, setPlayerId] = useState<string>("");
 
   // Helper ranking cliente (debe coincidir con backend)
   const cardRank = (c: any): number => {
@@ -41,13 +45,13 @@ export default function GamePage() {
   useEffect(() => {
     const code = searchParams.get("code");
     const host = searchParams.get("host") === "true";
-    const playerId = searchParams.get("playerId") || undefined;
-    if (!code || !playerId) return;
+    const pid = searchParams.get("playerId") || undefined;
+    if (!code || !pid) return;
 
     setRoomInfo(prev => ({
       code: code.toUpperCase(),
       isHost: host,
-      playerId,
+      playerId: pid,
       players: prev?.players ?? 0,
       status: prev?.status ?? "waiting",
     }));
@@ -66,11 +70,12 @@ export default function GamePage() {
         if (data.roles && roomInfo?.playerId) setMyRole(data.roles[roomInfo.playerId] || null);
 
         // opcional: contar jugadores y mis cartas si ya está jugando
-        const me = data.room?.players?.find((p: any) => p.id === playerId);
+        const me = data.room?.players?.find((p: any) => p.id === pid);
         if (me?.cards) setMyCards(me.cards);
         if (Array.isArray(data.room?.players)) {
           setRoomInfo(prev => prev ? { ...prev, players: data.room.players.length, status: data.room.status } : prev);
         }
+        setPlayersTable(Array.isArray(data.playersTable) ? data.playersTable : []);
       } catch {}
     })();
   }, [searchParams]);
@@ -102,6 +107,7 @@ export default function GamePage() {
           const me = data.room.players?.find((p: any) => p.id === roomInfo.playerId);
           if (me?.cards) setMyCards(me.cards);
         }
+        setPlayersTable(Array.isArray(data.playersTable) ? data.playersTable : []);
       } catch {}
     }, 1000);
     return () => { cancelled = true; clearInterval(id); };
@@ -165,6 +171,7 @@ export default function GamePage() {
           const me = data.room.players?.find((p: any) => p.id === roomInfo.playerId);
           if (me?.cards) setMyCards(me.cards);
         }
+        setPlayersTable(Array.isArray(data.playersTable) ? data.playersTable : []);
       } catch {}
     }, 1000);
     return () => { cancelled = true; clearInterval(id); };
@@ -308,8 +315,83 @@ export default function GamePage() {
     }
   };
 
+  // Ordena poniendo al jugador local abajo (ángulo 90º) y distribuye en círculo
+  const seats = (() => {
+    const meId = roomInfo?.playerId;
+    const list = [...playersTable];
+    if (!list.length) return [];
+
+    // Reordena: me primero, luego el resto en orden actual
+    let ordered = list;
+    if (meId) {
+      const meIdx = list.findIndex(p => p.id === meId);
+      if (meIdx > 0) {
+        ordered = [list[meIdx], ...list.slice(0, meIdx), ...list.slice(meIdx + 1)];
+      }
+    }
+
+    const n = ordered.length;
+
+    // Centro del contenedor (w=640, h=420)
+    const centerX = 320, centerY = 210;
+
+    // Radio máximo permitido para que no se salga (aprox. mitad del badge)
+    const badgeHalfW = 80;  // ~160px de ancho
+    const badgeHalfH = 28;  // ~56px de alto
+    const maxRadiusX = centerX - badgeHalfW - 4;
+    const maxRadiusY = centerY - badgeHalfH - 4;
+    const baseRadius = 120 + n * 12; // radio base que crece con jugadores
+    const radius = Math.min(maxRadiusX, maxRadiusY, baseRadius);
+
+    return ordered.map((p, i) => {
+      // i=0 abajo (270°). Con Y positiva hacia abajo: arranque en 90°.
+      const angle = (i / n) * 2 * Math.PI + Math.PI / 2;
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+      return { ...p, x, y, isMe: p.id === meId };
+    });
+  })();
+
+  // Lee code, playerId y nombre inicial (si viene por query)
+  useEffect(() => {
+    const code = searchParams.get("code") || "";
+    const pid = searchParams.get("playerId") || "";
+    const initialName = searchParams.get("name") || "";
+    setRoomCode(code);
+    setPlayerId(pid);
+    if (initialName) setPlayerName(initialName);
+  }, [searchParams]);
+
+  // Si no hay nombre en query, lo resuelve desde /state (buscando por playerId)
+  useEffect(() => {
+    if (!roomCode || !playerId) return;
+    let cancelled = false;
+    const fetchName = async () => {
+      try {
+        const res = await fetch(`/api/rooms/${roomCode}/state`, { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const me = Array.isArray(data?.room?.players)
+          ? data.room.players.find((p: any) => p?.id === playerId)
+          : null;
+        if (!cancelled && me?.name) setPlayerName(me.name);
+      } catch {}
+    };
+    fetchName(); // primera vez
+    const id = setInterval(fetchName, 2000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [roomCode, playerId]);
+
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Badge de nombre arriba a la derecha */}
+      <div className="fixed top-3 right-4 z-40">
+        <div className="glass px-3 py-1 rounded-full text-sm">
+          <span className="opacity-70 mr-2">Tú:</span>
+          <span className="font-semibold">{playerName || "Jugador"}</span>
+        </div>
+      </div>
+
       {/* Header superior con info */}
       {roomInfo ? (
         <div className="bg-green-950/80 p-4 text-white">
@@ -389,14 +471,38 @@ export default function GamePage() {
         <div className="w-8"></div>
       </header>
 
-      {/* Mano del jugador: cartas arrastrables solo en tu turno */}
-      <main className="flex-1 flex flex-col items-center justify-center relative">
-        <div className="flex items-center gap-4 mb-4">
-          {/* Centro */}
+      {/* Main compacto y sin exceso de margen superior */}
+      <main className="flex-1 flex flex-col items-center justify-start relative main-compact">
+        {/* RANKING ARRIBA: reserva espacio siempre; muestra solo si hay alguien */}
+        <div className="w-full px-4 mt-2 mb-3">
+          <div
+            className={`ranking-reserved mx-auto max-w-3xl rounded-xl shadow p-3 transition-opacity duration-300 ${
+              ranking.length > 0 ? 'bg-white/90 text-black ranking-visible' : 'ranking-hidden'
+            }`}
+          >
+            <div className="flex flex-wrap gap-3 justify-center">
+              {ranking.map((r: any) => (
+                <div key={r.playerId} className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded bg-gray-200 text-xs">#{r.place}</span>
+                  <span className="font-medium">{r.name}</span>
+                  {r.role && (
+                    <span className="px-2 py-0.5 rounded bg-yellow-300 text-xxs uppercase">
+                      {r.role}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Lienzo central con anillo de jugadores */}
+        <div className="relative w-[640px] h-[420px] flex items-center justify-center mb-4">
+          {/* Carta central */}
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDropOnCenter}
-            className="bg-white/90 rounded-xl shadow-2xl flex items-center justify-center w-36 h-52 border-4 border-yellow-500"
+            className="center-card"
             title="Arrastra carta(s) aquí"
           >
             {topCard ? (
@@ -409,80 +515,75 @@ export default function GamePage() {
             )}
           </div>
 
-          {/* Selector SOLO para quien abre la ronda; para el resto muestra el tamaño requerido */}
-          <div className="flex items-center gap-2">
-            {roundAwaitingLead && (currentTurn === roomInfo?.playerId || (!turnsStarted && hasThreeBastos)) ? (
-              <>
-                <label className="text-white">Jugar</label>
-                <select
-                  value={selectedComboSize}
-                  onChange={(e) => setSelectedComboSize(Number(e.target.value))}
-                  className="bg-white text-gray-900 px-2 py-1 rounded"
-                  title="Elige 1, 2, 3 o 4 para abrir la ronda"
-                >
-                  <option value={1}>1 carta</option>
-                  <option value={2}>2 cartas</option>
-                  <option value={3}>3 cartas</option>
-                  <option value={4}>4 cartas</option>
-                </select>
-              </>
-            ) : (
-              <span className="bg-white/90 text-gray-900 px-2 py-1 rounded text-sm">
-                Ronda de {roundComboSize} carta(s)
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* RANKING ENTRE CENTRO Y MANO */}
-        {ranking.length > 0 && (
-          <div className="w-full px-4 mb-4">
-            <div className="mx-auto max-w-3xl bg-white/90 text-black rounded-xl shadow p-3">
-              <div className="flex flex-wrap gap-3 justify-center">
-                {ranking.map(r => (
-                  <div key={r.playerId} className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded bg-gray-200 text-xs">#{r.place}</span>
-                    <span className="font-medium">{r.name}</span>
-                    {r.role && (
-                      <span className="px-2 py-0.5 rounded bg-yellow-300 text-xxs uppercase">
-                        {r.role}
-                      </span>
-                    )}
-                  </div>
-                ))}
+          {/* Asientos alrededor */}
+          {seats.map(seat => (
+            <div
+              key={seat.id}
+              className={`seat-badge absolute ${seat.isMe ? 'seat-me' : ''} ${seat.isCurrentTurn ? 'seat-turn' : ''}`}
+              style={{
+                left: seat.x,
+                top: seat.y,
+              }}
+              title={seat.role ? `${seat.name} · ${seat.role}` : seat.name}
+            >
+              <div className="name">
+                {seat.name}{seat.role ? ` · ${seat.role}` : ''}
+              </div>
+              <div className="meta">
+                <span>🂠 {seat.cardsCount}</span>
+                {seat.isCurrentTurn && <span>• turno</span>}
+                {seat.isMe && <span>• tú</span>}
               </div>
             </div>
-          </div>
-        )}
+          ))}
+        </div>
 
-        {/* Mano: permite arrastrar solo cartas que formen 1/2/3/4 según la ronda.
-            El 2 de oros siempre se puede arrastrar. */}
-        <div className="absolute bottom-0 left-0 w-full px-4 pb-6 flex justify-center items-end pointer-events-none">
+        {/* Selector SOLO para quien abre la ronda / tamaño requerido */}
+        <div className="flex items-center gap-2 mb-4">
+          {roundAwaitingLead && (currentTurn === roomInfo?.playerId || (!turnsStarted && hasThreeBastos)) ? (
+            <>
+              <label className="text-white">Jugar</label>
+              <select
+                value={selectedComboSize}
+                onChange={(e) => setSelectedComboSize(Number(e.target.value))}
+                className="bg-white text-gray-900 px-2 py-1 rounded"
+                title="Elige 1, 2, 3 o 4 para abrir la ronda"
+              >
+                <option value={1}>1 carta</option>
+                <option value={2}>2 cartas</option>
+                <option value={3}>3 cartas</option>
+                <option value={4}>4 cartas</option>
+              </select>
+            </>
+          ) : (
+            <span className="bg-white/90 text-gray-900 px-2 py-1 rounded text-sm">
+              Ronda de {roundComboSize} carta(s)
+            </span>
+          )}
+        </div>
+
+        {/* Mano del jugador */}
+        <div className="absolute bottom-0 left-0 w-full px-4 pt-4 pb-12 flex justify-center items-end pointer-events-none">
           <div className="flex space-x-4 overflow-x-auto pointer-events-auto">
             {myCards.length > 0 ? (
               myCards.map((c, i) => {
                 const isMyTurn = currentTurn === roomInfo?.playerId;
                 const twoOros = c.value === 2 && c.suit === 'oros';
                 const countSame = myCards.filter(x => x.value === c.value).length;
-
                 let allowDrag = false;
 
                 if (!turnsStarted && gameType === 'juego1') {
-                  // NUEVO: si hay líder por roles (culo) y eres tú, puedes abrir con lo que quieras (respeta selector/combo)
                   const isLeadingByRole = roundAwaitingLead && !!currentTurn && isMyTurn;
                   if (isLeadingByRole) {
                     allowDrag = twoOros ? true : countSame >= selectedComboSize;
                   } else {
-                    // Sin líder por roles (primera mano de la partida): solo 3 de bastos (o combos de treses que incluyan 3 de bastos; lo valida el backend)
                     allowDrag = c.value === 3 && c.suit === 'bastos';
                   }
                 } else if (turnsStarted && roundAwaitingLead) {
-                  // Abriendo ronda normal: solo el líder puede arrastrar
                   if (isMyTurn) {
                     allowDrag = twoOros ? true : countSame >= selectedComboSize;
                   }
                 } else if (turnsStarted) {
-                  // Ronda en curso: exige combo del tamaño de la ronda y rango >= top (salvo 2 de oros)
                   if (isMyTurn) {
                     if (twoOros) allowDrag = true;
                     else {
@@ -503,8 +604,10 @@ export default function GamePage() {
                       if (!allowDrag) { e.preventDefault(); return; }
                       e.dataTransfer.setData("application/json", JSON.stringify(c));
                     }}
-                    className={`bg-white rounded-2xl shadow-2xl w-28 h-40 flex flex-col items-center justify-center border-4 ${
-                      allowDrag ? "cursor-grab active:cursor-grabbing border-gray-400" : "cursor-not-allowed opacity-60 border-gray-300"
+                    className={`playing-card bg-white rounded-2xl shadow-2xl w-28 h-40 flex flex-col items-center justify-center border-4 ${
+                      allowDrag
+                        ? "playable cursor-grab active:cursor-grabbing border-gray-400"
+                        : "cursor-not-allowed opacity-60 border-gray-300"
                     }`}
                     title={
                       twoOros ? "2 de oros (gana a todo)" :
