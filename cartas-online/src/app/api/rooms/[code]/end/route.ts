@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { roomStorage } from '../../storage';
+import type { AnyPlayer } from '../../storage';
 
 export async function POST(_request: Request, context: { params: { code: string } }) {
   try {
@@ -11,13 +12,17 @@ export async function POST(_request: Request, context: { params: { code: string 
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
 
     // Reabrir: limpiar estado de partida y permitir nuevos jugadores
-    const resetPlayers = (room.players || []).map(p => ({ ...p, cards: undefined as any }));
+    const resetPlayers: AnyPlayer[] = (room.players || []).map((p) => {
+      const { cards: _drop, ...rest } = p;
+      return rest;
+    });
+
     const updatedRoom = {
       ...room,
       status: 'waiting' as const,
       players: resetPlayers,
       currentDeck: undefined,
-      discardPile: undefined
+      discardPile: undefined,
     };
 
     roomStorage.setRoom(upper, updatedRoom);

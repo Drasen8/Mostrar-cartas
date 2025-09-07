@@ -1,17 +1,32 @@
 import { NextResponse } from 'next/server';
 import { roomStorage } from '../../storage';
-import type { Card } from '../../../../../../src/lib/game/cards';
+import type { AnyRoom } from '../../storage';
+import type { Card } from '@/types/Card';
 
-// Ranking: 3 (más floja) ... 2 (más fuerte) y 2 de oros por encima de todo
-function rankCard(card: any): number {
-  const order = [3, 4, 5, 6, 7, 10, 11, 12, 1, 2];
+type RoomRoundState = AnyRoom & {
+  lastTopPlayedBy?: string;
+  roundTopValue?: number | null;
+  roundComboSize?: number;
+  discardPile?: Card[];
+};
+
+function rankCard(card: Pick<Card, 'value' | 'suit'> | null | undefined): number {
+  const order: Card['value'][] = [3, 4, 5, 6, 7, 10, 11, 12, 1, 2];
   if (!card) return -1;
   if (card.value === 2 && card.suit === 'oros') return 100; // 2 de oros gana a todo
   if (card.value === 2) return 90;
   const i = order.indexOf(card.value);
   return i === -1 ? -1 : i;
 }
-const isTwoOros = (c: any) => c?.suit === 'oros' && c?.value === 2;
+const isTwoOros = (c: Pick<Card, 'value' | 'suit'> | undefined): boolean =>
+  !!c && c.suit === 'oros' && c.value === 2;
+
+type PlayBody = {
+  playerId?: string;
+  card?: Card;
+  cards?: Card[];
+  comboSize?: number;
+};
 
 export async function POST(request: Request, context: { params: { code: string } }) {
   try {
@@ -19,18 +34,19 @@ export async function POST(request: Request, context: { params: { code: string }
     const code = params.code?.toUpperCase();
     if (!code) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
-    const room = roomStorage.getRoom(code);
+    const room = roomStorage.getRoom(code) as RoomRoundState | undefined;
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
     if (room.status !== 'playing') return NextResponse.json({ error: 'La partida no está en curso' }, { status: 400 });
 
-    let body: any = {};
-    try { body = await request.json(); } catch {}
+    let bodyJson: unknown = {};
+    try { bodyJson = await request.json(); } catch {}
+    const body = (bodyJson || {}) as PlayBody;
 
     const playerId: string | undefined = body?.playerId;
     if (!playerId) return NextResponse.json({ error: 'Falta playerId' }, { status: 400 });
 
     // Normaliza cartas recibidas (soporta combos)
-    const inputCards: any[] = Array.isArray(body.cards)
+    const inputCards: Card[] = Array.isArray(body.cards)
       ? body.cards
       : body.card
         ? [body.card]
@@ -41,18 +57,16 @@ export async function POST(request: Request, context: { params: { code: string }
 
     // Detecta si hay líder por roles (culo abre mano con lo que quiera)
     const isLeadingByRole =
-      !!(room as any).roundAwaitingLead &&
+      !!room.roundAwaitingLead &&
       !!room.currentTurnPlayerId &&
       playerId === room.currentTurnPlayerId;
 
-    // FIX: booleano compatible con abrir con 1/2/3/4 treses siempre que incluya el 3 de bastos
+    // booleano compatible con abrir con 1/2/3/4 treses siempre que incluya el 3 de bastos
     const isThreeB = inputCards.length > 0
       && inputCards.every(c => c?.value === 3)
       && inputCards.some(c => c?.value === 3 && c?.suit === 'bastos');
 
-    // Validación de inicio de partida (juego1):
-    // - Si NO hay líder por roles: exige que la primera jugada sean treses e incluya 3 de bastos (permite pareja/trío/cuatro).
-    // - Si hay líder por roles: puede abrir con cualquier carta/combo.
+    // Validación de inicio de partida (juego1)
     if (!room.turnsStarted && room.gameType === 'juego1' && !isLeadingByRole && !isThreeB) {
       return NextResponse.json(
         { error: 'La primera jugada debe incluir el 3 de bastos y solo treses (puedes pareja/trío/cuatro).' },
@@ -61,24 +75,24 @@ export async function POST(request: Request, context: { params: { code: string }
     }
 
     // Estructuras de ronda
-    room.roundComboSize = Number.isFinite((room as any).roundComboSize) ? (room as any).roundComboSize : 1;
-    room.roundTopValue = (room as any).roundTopValue ?? null;
+    room.roundComboSize = Number.isFinite(room.roundComboSize) ? room.roundComboSize : 1;
+    room.roundTopValue = room.roundTopValue ?? null;
 
     const playerIdx = room.players.findIndex(p => p.id === playerId);
     if (playerIdx === -1) return NextResponse.json({ error: 'Jugador no está en la sala' }, { status: 404 });
     const player = room.players[playerIdx];
-    const hand = [...(player.cards || [])];
+    const hand: Card[] = [...((player.cards as Card[] | undefined) || [])];
 
     // Verifica que todas las cartas estén en tu mano
-    const containsCard = (h: any[], c: any) => h.some(x => x.suit === c.suit && x.value === c.value);
+    const containsCard = (h: Card[], c: Card) => h.some(x => x.suit === c.suit && x.value === c.value);
     for (const c of inputCards) {
       if (!containsCard(hand, c)) {
         return NextResponse.json({ error: 'Alguna carta no está en tu mano' }, { status: 400 });
       }
     }
 
-    const top = room.discardPile?.length ? room.discardPile[room.discardPile.length - 1] : null;
-    const prevValue = (room as any).roundTopValue ?? (top ? top.value : null);
+    const top: Card | null = room.discardPile?.length ? room.discardPile[room.discardPile.length - 1] ?? null : null;
+    const prevValue: number | null = room.roundTopValue ?? (top ? top.value : null);
 
     // Validación turno
     if (room.turnsStarted) {
@@ -107,13 +121,13 @@ export async function POST(request: Request, context: { params: { code: string }
 
     // Reglas según si se está abriendo ronda o no
     if (room.turnsStarted && !room.roundAwaitingLead) {
-      // Ronda en curso: debe respetarse el tamaño del combo actual, salvo 2 de oros
-      const requiredSize = (room as any).roundComboSize || 1;
+      // Ronda en curso
+      const requiredSize = room.roundComboSize || 1;
       if (!singleTwoOros && inputCards.length !== requiredSize) {
         return NextResponse.json({ error: `Debes jugar ${requiredSize} carta(s)` }, { status: 400 });
       }
       if (!singleTwoOros && prevValue != null) {
-        const topRank = rankCard({ value: prevValue, suit: 'x' });
+        const topRank = rankCard({ value: prevValue, suit: 'x' as Card['suit'] });
         const playRank = rankCard(inputCards[0]);
         if (playRank < topRank) {
           return NextResponse.json({ error: 'Debes jugar una jugada igual o superior' }, { status: 400 });
@@ -122,7 +136,6 @@ export async function POST(request: Request, context: { params: { code: string }
     } else {
       // Abriendo ronda
       const isFirstHandNoRoles = !room.turnsStarted && room.gameType === 'juego1' && !isLeadingByRole;
-      // En la primera mano sin roles, si juegas tres(es) válidos, acepta tamaño 1..4 sin exigir comboSize
       if (!(isFirstHandNoRoles && isThreeB)) {
         const wantedSize = Math.max(1, Math.min(4, Number(body.comboSize) || inputCards.length));
         if (!singleTwoOros && inputCards.length !== wantedSize) {
@@ -132,39 +145,37 @@ export async function POST(request: Request, context: { params: { code: string }
     }
 
     // Quitar cartas de la mano
-    const removeOne = (arr: any[], c: any) => {
+    const removeOne = (arr: Card[], c: Card) => {
       const idx = arr.findIndex(x => x.suit === c.suit && x.value === c.value);
       if (idx !== -1) arr.splice(idx, 1);
     };
-    const newHand = [...hand];
+    const newHand: Card[] = [...hand];
     for (const c of inputCards) removeOne(newHand, c);
 
     // Aplicar jugada al descarte
     room.players[playerIdx] = { ...player, cards: newHand };
     room.discardPile = [...(room.discardPile || []), ...inputCards];
-    (room as any).lastTopPlayedBy = playerId;
+    room.lastTopPlayedBy = playerId;
 
     // Si abre ronda, fija el tamaño del combo
     if (room.roundAwaitingLead) {
-      (room as any).roundComboSize = singleTwoOros ? 1 : inputCards.length;
-      (room as any).roundAwaitingLead = false;
-      (room as any).roundTopValue = singleTwoOros ? inputCards[0].value : inputCards[0].value;
+      room.roundComboSize = singleTwoOros ? 1 : inputCards.length;
+      room.roundAwaitingLead = false;
+      room.roundTopValue = inputCards[0].value;
     } else {
-      (room as any).roundTopValue = singleTwoOros ? inputCards[0].value : inputCards[0].value;
+      room.roundTopValue = inputCards[0].value;
     }
 
-    // Reglas especiales:
-    // 1) 2 de oros: cierra ronda y repite el mismo jugador (si le quedan cartas)
+    // 1) 2 de oros: cierra ronda y repite
     if (singleTwoOros) {
       if (newHand.length === 0) {
-        // se quedó sin cartas; lógica de fin del jugador
+        // se quedó sin cartas; lógica continua abajo en bloque de finished
       } else {
         // Cerrar ronda: limpiar centro y que el mismo jugador lidere
         room.discardPile = [];
-        (room as any).lastTopPlayedBy = undefined;
-        (room as any).roundAwaitingLead = true;
-        (room as any).roundNumber = (room.roundNumber ?? 0) + 1;
-        // activos: quienes tengan cartas
+        room.lastTopPlayedBy = undefined;
+        room.roundAwaitingLead = true;
+        room.roundNumber = (room.roundNumber ?? 0) + 1;
         const remainingIds = room.players.filter(p => (p.cards?.length || 0) > 0).map(p => p.id);
         room.roundActivePlayerIds = remainingIds;
         room.currentTurnPlayerId = playerId;
@@ -177,12 +188,12 @@ export async function POST(request: Request, context: { params: { code: string }
           turnsStarted: !!room.turnsStarted,
           nextTurnPlayerId: room.currentTurnPlayerId || null,
           roundAwaitingLead: !!room.roundAwaitingLead,
-          roundComboSize: (room as any).roundComboSize
+          roundComboSize: room.roundComboSize
         });
       }
     }
 
-    // 2) Si el jugador acaba de quedarse sin cartas: cerrar ronda, limpiar centro y pasar liderazgo al siguiente con cartas
+    // 2) Si el jugador acaba de quedarse sin cartas: cerrar ronda...
     room.finishedOrder ||= [];
     const justFinished = newHand.length === 0 && !room.finishedOrder.includes(playerId);
     if (justFinished) {
@@ -200,11 +211,11 @@ export async function POST(request: Request, context: { params: { code: string }
       }
 
       room.discardPile = [];
-      (room as any).lastTopPlayedBy = undefined;
-      (room as any).roundAwaitingLead = true;
-      (room as any).roundNumber = (room.roundNumber ?? 0) + 1;
-      (room as any).roundTopValue = null;
-      (room as any).roundComboSize = 1;
+      room.lastTopPlayedBy = undefined;
+      room.roundAwaitingLead = true;
+      room.roundNumber = (room.roundNumber ?? 0) + 1;
+      room.roundTopValue = null;
+      room.roundComboSize = 1;
       room.roundActivePlayerIds = remainingIds;
       room.currentTurnPlayerId = nextLeader;
       room.turnsStarted = true;
@@ -226,44 +237,42 @@ export async function POST(request: Request, context: { params: { code: string }
         turnsStarted: !!room.turnsStarted,
         nextTurnPlayerId: room.currentTurnPlayerId || null,
         roundAwaitingLead: !!room.roundAwaitingLead,
-        roundComboSize: (room as any).roundComboSize
+        roundComboSize: room.roundComboSize
       });
     }
 
-    // Si no es 2 de oros (ya cierra ronda) y no ha quedado sin cartas,
-    // verifica si NADIE puede superar la jugada actual. Si nadie puede, cierra la ronda ya.
+    // ¿Nadie puede superar? cerrar ronda ya
     if (!isTwoOros(inputCards[0]) && newHand.length > 0 && !room.roundAwaitingLead) {
-      const requiredSize = (room as any).roundComboSize || inputCards.length || 1;
-      const topValue = (room as any).roundTopValue ?? inputCards[0].value;
-      const topRank = rankCard({ value: topValue, suit: 'x' });
+      const requiredSize = room.roundComboSize || inputCards.length || 1;
+      const topValue = room.roundTopValue ?? inputCards[0].value;
+      const topRank = rankCard({ value: topValue, suit: 'x' as Card['suit'] });
 
       const finishedSet = new Set(room.finishedOrder || []);
-      const opponents = room.players.filter(p => p.id !== playerId && (p.cards?.length || 0) > 0 && !finishedSet.has(p.id));
+      const opponents = room.players
+        .filter(p => p.id !== playerId && (p.cards?.length || 0) > 0 && !finishedSet.has(p.id))
+        .map(p => ({ id: p.id, cards: (p.cards as Card[] | undefined) || [] }));
 
       const canOpponentBeat = opponents.some(p => {
-        const hand = p.cards || [];
-        const hasTwoOros = hand.some((c: any) => c.value === 2 && c.suit === 'oros');
-        if (hasTwoOros) return true; // siempre puede ganar
-        // ¿puede formar N iguales y ser >= top?
+        const hand = p.cards;
+        const hasTwo = hand.some(c => isTwoOros(c));
+        if (hasTwo) return true;
         const counts: Record<number, number> = {};
         for (const c of hand) counts[c.value] = (counts[c.value] || 0) + 1;
         return Object.entries(counts).some(([valStr, cnt]) => {
-          const val = Number(valStr);
-          return cnt >= requiredSize && rankCard({ value: val, suit: 'x' }) >= topRank;
+          const val = Number(valStr) as Card['value'];
+          return cnt >= requiredSize && rankCard({ value: val, suit: 'x' as Card['suit'] }) >= topRank;
         });
       });
 
       if (!canOpponentBeat) {
-        // Cerrar ronda inmediatamente: limpia centro y que el mismo jugador lidere la nueva.
         room.discardPile = [];
-        (room as any).lastTopPlayedBy = undefined;
-        (room as any).roundAwaitingLead = true;
-        (room as any).roundTopValue = null;
-        (room as any).roundComboSize = 1;
+        room.lastTopPlayedBy = undefined;
+        room.roundAwaitingLead = true;
+        room.roundTopValue = null;
+        room.roundComboSize = 1;
         room.roundNumber = (room.roundNumber ?? 0) + 1;
         room.turnsStarted = true;
 
-        // Activos = jugadores con cartas
         const remainingIds = room.players.filter(p => (p.cards?.length || 0) > 0).map(p => p.id);
         room.roundActivePlayerIds = remainingIds;
         room.currentTurnPlayerId = playerId;
@@ -275,8 +284,8 @@ export async function POST(request: Request, context: { params: { code: string }
           myCards: newHand,
           turnsStarted: !!room.turnsStarted,
           nextTurnPlayerId: room.currentTurnPlayerId || null,
-          roundAwaitingLead: !!(room as any).roundAwaitingLead,
-          roundComboSize: (room as any).roundComboSize
+          roundAwaitingLead: !!room.roundAwaitingLead,
+          roundComboSize: room.roundComboSize
         });
       }
     }
@@ -285,7 +294,7 @@ export async function POST(request: Request, context: { params: { code: string }
     let steps = 0;
     if (!room.turnsStarted) {
       room.turnsStarted = true;
-      (room as any).roundAwaitingLead = false;
+      room.roundAwaitingLead = false;
       steps = 1;
     } else {
       steps = 1;
@@ -296,7 +305,7 @@ export async function POST(request: Request, context: { params: { code: string }
       steps += 1; // salto por mismo número
     }
 
-    // Rotación entre activos (excluye terminados)
+    // Rotación entre activos
     room.finishedOrder ||= [];
     const finishedSet = new Set(room.finishedOrder);
     const allIds = room.players.map(p => p.id);
@@ -315,7 +324,7 @@ export async function POST(request: Request, context: { params: { code: string }
     }
 
     roomStorage.setRoom(code, room);
-    const topCard = room.discardPile[room.discardPile.length - 1] || null;
+    const topCard = room.discardPile && room.discardPile.length > 0 ? room.discardPile[room.discardPile.length - 1] : null;
     return NextResponse.json({
       room,
       topCard,
@@ -323,7 +332,7 @@ export async function POST(request: Request, context: { params: { code: string }
       turnsStarted: !!room.turnsStarted,
       nextTurnPlayerId: room.currentTurnPlayerId || null,
       roundAwaitingLead: !!room.roundAwaitingLead,
-      roundComboSize: (room as any).roundComboSize
+      roundComboSize: room.roundComboSize
     });
   } catch (err) {
     console.error('[Play] Error:', err);
