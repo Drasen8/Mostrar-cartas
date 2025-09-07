@@ -28,9 +28,10 @@ type PlayBody = {
   comboSize?: number;
 };
 
-export async function POST(request: NextRequest, { params }: { params: { code: string } }) {
+export async function POST(request: NextRequest, context: { params: Promise<{ code: string }> }) {
   try {
-    const code = params.code?.toUpperCase();
+    const { code: raw } = await context.params;
+    const code = raw?.toUpperCase();
     if (!code) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
     const room = roomStorage.getRoom(code) as RoomRoundState | undefined;

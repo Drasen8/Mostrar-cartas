@@ -20,9 +20,10 @@ function resolveUniqueName(desired: string | undefined, existing: string[], fall
   return `${base}${max + 1}`;
 }
 
-export async function GET(request: NextRequest, { params }: { params: { code: string } }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ code: string }> }) {
   try {
-    const upper = params.code?.toUpperCase();
+    const { code: raw } = await context.params;
+    const upper = raw?.toUpperCase();
     if (!upper) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
     const room = roomStorage.getRoom(upper);

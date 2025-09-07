@@ -2,9 +2,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from '../../storage';
 import type { AnyPlayer } from '../../storage';
 
-export async function POST(_request: NextRequest, { params }: { params: { code: string } }) {
+export async function POST(_request: NextRequest, context: { params: Promise<{ code: string }> }) {
   try {
-    const upper = params.code?.toUpperCase();
+    const { code: raw } = await context.params;
+    const upper = raw?.toUpperCase();
     if (!upper) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
     const room = roomStorage.getRoom(upper);

@@ -10,9 +10,10 @@ function rankCard(card: any): number {
   return i === -1 ? -1 : i;
 }
 
-export async function GET(_request: NextRequest, { params }: { params: { code: string } }) {
+export async function GET(_request: NextRequest, context: { params: Promise<{ code: string }> }) {
   try {
-    const code = params.code?.toUpperCase();
+    const { code: raw } = await context.params;
+    const code = raw?.toUpperCase();
     if (!code) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
     const room = roomStorage.getRoom(code);

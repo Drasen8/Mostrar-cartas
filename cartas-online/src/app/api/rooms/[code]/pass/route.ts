@@ -10,9 +10,10 @@ type RoomRoundState = AnyRoom & {
 
 type PassBody = { playerId?: string };
 
-export async function POST(request: NextRequest, { params }: { params: { code: string } }) {
+export async function POST(request: NextRequest, context: { params: Promise<{ code: string }> }) {
   try {
-    const upper = params.code?.toUpperCase();
+    const { code: raw } = await context.params;
+    const upper = raw?.toUpperCase();
     if (!upper) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
     const room = roomStorage.getRoom(upper) as RoomRoundState | undefined;
