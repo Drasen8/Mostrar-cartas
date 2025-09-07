@@ -39,6 +39,7 @@ declare global {
 const mem: Record<string, AnyRoom> = globalThis.__rooms || (globalThis.__rooms = {});
 
 // Vercel KV driver (optional)
+import { kv } from '@vercel/kv';
 let kvAvailable = false;
 try {
   kvAvailable = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
@@ -46,42 +47,31 @@ try {
   kvAvailable = false;
 }
 
-let kv: any = null;
-if (kvAvailable) {
-  try {
-    // Lazy require to avoid bundling if not available
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    kv = require('@vercel/kv');
-  } catch {
-    kvAvailable = false;
-  }
-}
-
 const kvPrefix = 'room:';
 
 const kvStorage: AsyncRoomStorage = {
   async getRoom(code) {
     const key = kvPrefix + code.toUpperCase();
-    const r = await kv.kv.get(key);
+    const r = await kv.get(key);
     return (r as AnyRoom) || undefined;
   },
   async setRoom(code, room) {
     const key = kvPrefix + code.toUpperCase();
-    await kv.kv.set(key, room, { ex: 60 * 60 * 24 });
-    await kv.kv.sadd('rooms:set', code.toUpperCase());
+    await kv.set(key, room, { ex: 60 * 60 * 24 });
+    await kv.sadd('rooms:set', code.toUpperCase());
   },
   async getAllRooms() {
-  const codes = (await kv.kv.smembers('rooms:set')) as string[] | null;
+  const codes = (await kv.smembers('rooms:set')) as string[] | null;
   if (!codes || codes.length === 0) return [];
     const keys = codes.map(c => kvPrefix + c);
     // mget returns (unknown | null)[]
-    const arr = (await kv.kv.mget(...keys)) as (AnyRoom | null)[];
+    const arr = (await kv.mget(...keys)) as (AnyRoom | null)[];
     return arr.filter(Boolean) as AnyRoom[];
   },
   async deleteRoom(code) {
     const key = kvPrefix + code.toUpperCase();
-    await kv.kv.del(key);
-    await kv.kv.srem('rooms:set', code.toUpperCase());
+    await kv.del(key);
+    await kv.srem('rooms:set', code.toUpperCase());
   }
 };
 

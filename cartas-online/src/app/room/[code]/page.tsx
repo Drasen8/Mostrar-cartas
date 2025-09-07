@@ -12,9 +12,14 @@ export default function RoomPage() {
 
   useEffect(() => {
     const fetchRoom = async () => {
-      const response = await fetch(`/api/rooms/${code}`);
-      const data = await response.json();
-      setRoom(data.room);
+      try {
+        const response = await fetch(`/api/rooms/${code}/state`, { cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'Sala no encontrada');
+        setRoom(data.room as Room);
+      } catch (_e) {
+        setRoom(null);
+      }
     };
 
     fetchRoom();
