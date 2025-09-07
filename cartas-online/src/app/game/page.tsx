@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 interface RoomInfo {
@@ -10,7 +10,7 @@ interface RoomInfo {
   status?: string;
 }
 
-export default function GamePage() {
+function GamePageInner() {
   const searchParams = useSearchParams();
 
   const [error, setError] = useState("");
@@ -630,5 +630,13 @@ export default function GamePage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function GamePage() {
+  return (
+    <Suspense fallback={<div className="w-full text-center py-8 text-lg text-gray-400">Cargando partida...</div>}>
+      <GamePageInner />
+    </Suspense>
   );
 }

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 interface RoomInfo {
@@ -10,7 +10,7 @@ interface RoomInfo {
   status?: string;
 }
 
-export default function Page() {
+function PageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -291,5 +291,13 @@ export default function Page() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="w-full text-center py-8 text-lg text-gray-400">Cargando…</div>}>
+      <PageInner />
+    </Suspense>
   );
 }
