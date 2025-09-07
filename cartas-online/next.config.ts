@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
-const isPages = process.env.GITHUB_PAGES === 'true';
+const isVercel = !!process.env.VERCEL;
+// Solo activar export estático para GitHub Pages cuando NO es Vercel
+const isPages = !isVercel && process.env.GITHUB_PAGES === 'true';
 const repoBase = '/cartas-online'; // si usas GitHub Pages de proyecto
 
 const nextConfig: NextConfig = {
