@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
     const code = raw?.toUpperCase();
     if (!code) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
-    const room = roomStorage.getRoom(code) as RoomRoundState | undefined;
+  const room = await roomStorage.getRoom(code) as RoomRoundState | undefined;
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
     if (room.status !== 'playing') return NextResponse.json({ error: 'La partida no está en curso' }, { status: 400 });
 
@@ -181,7 +181,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
         room.roundActivePlayerIds = remainingIds;
         room.currentTurnPlayerId = playerId;
         room.turnsStarted = true;
-        roomStorage.setRoom(code, room);
+  await roomStorage.setRoom(code, room);
         return NextResponse.json({
           room,
           topCard: null,
@@ -230,7 +230,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
         room.roundAwaitingLead = true;
       }
 
-      roomStorage.setRoom(code, room);
+  await roomStorage.setRoom(code, room);
       return NextResponse.json({
         room,
         topCard: null,
@@ -278,7 +278,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
         room.roundActivePlayerIds = remainingIds;
         room.currentTurnPlayerId = playerId;
 
-        roomStorage.setRoom(code, room);
+  await roomStorage.setRoom(code, room);
         return NextResponse.json({
           room,
           topCard: null,
@@ -324,7 +324,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
       }
     }
 
-    roomStorage.setRoom(code, room);
+  await roomStorage.setRoom(code, room);
     const topCard = room.discardPile && room.discardPile.length > 0 ? room.discardPile[room.discardPile.length - 1] : null;
     return NextResponse.json({
       room,

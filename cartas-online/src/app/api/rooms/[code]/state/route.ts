@@ -16,7 +16,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ co
     const code = raw?.toUpperCase();
     if (!code) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
-    const room = roomStorage.getRoom(code);
+  const room = await roomStorage.getRoom(code);
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
 
     // Defaults de ronda
@@ -100,7 +100,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ co
             }
           }
 
-          roomStorage.setRoom(code, room);
+          await roomStorage.setRoom(code, room);
         }
       }
     } catch {

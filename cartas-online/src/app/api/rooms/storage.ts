@@ -23,29 +23,86 @@ export type AnyRoom = {
   finishedOrder?: string[];
 };
 
+// Async storage with Vercel KV (if configured) and memory fallback
+type AsyncRoomStorage = {
+  getRoom: (code: string) => Promise<AnyRoom | undefined>;
+  setRoom: (code: string, room: AnyRoom) => Promise<void>;
+  getAllRooms: () => Promise<AnyRoom[]>;
+  deleteRoom: (code: string) => Promise<void>;
+};
+
+// Memory fallback (dev/local)
 declare global {
-  // Evita que se pierdan datos entre HMR recompiles en dev
   // eslint-disable-next-line no-var
   var __rooms: Record<string, AnyRoom> | undefined;
 }
+const mem: Record<string, AnyRoom> = globalThis.__rooms || (globalThis.__rooms = {});
 
-const globalRooms: Record<string, AnyRoom> = globalThis.__rooms || (globalThis.__rooms = {});
+// Vercel KV driver (optional)
+let kvAvailable = false;
+try {
+  kvAvailable = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+} catch {
+  kvAvailable = false;
+}
 
-export const roomStorage = {
-  getRoom(code: string): AnyRoom | undefined {
-    const key = code.toUpperCase();
-    return globalRooms[key];
+let kv: any = null;
+if (kvAvailable) {
+  try {
+    // Lazy require to avoid bundling if not available
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    kv = require('@vercel/kv');
+  } catch {
+    kvAvailable = false;
+  }
+}
+
+const kvPrefix = 'room:';
+
+const kvStorage: AsyncRoomStorage = {
+  async getRoom(code) {
+    const key = kvPrefix + code.toUpperCase();
+    const r = await kv.kv.get(key);
+    return (r as AnyRoom) || undefined;
   },
-  setRoom(code: string, room: AnyRoom): void {
-    const key = code.toUpperCase();
-    globalRooms[key] = room;
-    // console.log('[Storage] rooms:', Object.keys(globalRooms));
+  async setRoom(code, room) {
+    const key = kvPrefix + code.toUpperCase();
+    await kv.kv.set(key, room, { ex: 60 * 60 * 24 });
+    await kv.kv.sadd('rooms:set', code.toUpperCase());
   },
-  getAllRooms(): AnyRoom[] {
-    return Object.values(globalRooms);
+  async getAllRooms() {
+  const codes = (await kv.kv.smembers('rooms:set')) as string[] | null;
+  if (!codes || codes.length === 0) return [];
+    const keys = codes.map(c => kvPrefix + c);
+    // mget returns (unknown | null)[]
+    const arr = (await kv.kv.mget(...keys)) as (AnyRoom | null)[];
+    return arr.filter(Boolean) as AnyRoom[];
   },
-  deleteRoom(code: string) {
-    const key = code.toUpperCase();
-    delete globalRooms[key];
+  async deleteRoom(code) {
+    const key = kvPrefix + code.toUpperCase();
+    await kv.kv.del(key);
+    await kv.kv.srem('rooms:set', code.toUpperCase());
   }
 };
+
+const memStorage: AsyncRoomStorage = {
+  async getRoom(code) {
+    return mem[code.toUpperCase()];
+  },
+  async setRoom(code, room) {
+    mem[code.toUpperCase()] = room;
+  },
+  async getAllRooms() {
+    return Object.values(mem);
+  },
+  async deleteRoom(code) {
+    delete mem[code.toUpperCase()];
+  }
+};
+
+export const roomStorage: AsyncRoomStorage = kvAvailable ? kvStorage : memStorage;
+
+// Warn if running on Vercel without KV configured (memory is ephemeral there)
+if (!kvAvailable && process.env.VERCEL) {
+  console.warn('[rooms/storage] Vercel KV is not configured. Falling back to in-memory storage which is ephemeral on Vercel. Configure KV to persist rooms.');
+}

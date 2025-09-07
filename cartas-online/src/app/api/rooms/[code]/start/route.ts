@@ -27,7 +27,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ c
     const code = raw?.toUpperCase();
     if (!code) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
-    const room = roomStorage.getRoom(code);
+  const room = await roomStorage.getRoom(code);
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
 
     if (room.status === 'playing') {
@@ -109,7 +109,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ c
       roles
     };
 
-    roomStorage.setRoom(code, updatedRoom);
+  await roomStorage.setRoom(code, updatedRoom);
     return NextResponse.json({
       room: updatedRoom,
       message: prevOrder.length === allIds.length

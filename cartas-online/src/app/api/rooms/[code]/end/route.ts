@@ -8,7 +8,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ c
     const upper = raw?.toUpperCase();
     if (!upper) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
-    const room = roomStorage.getRoom(upper);
+  const room = await roomStorage.getRoom(upper);
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
 
     // Reabrir: limpiar estado de partida y permitir nuevos jugadores
@@ -25,7 +25,7 @@ export async function POST(_request: NextRequest, context: { params: Promise<{ c
       discardPile: undefined,
     };
 
-    roomStorage.setRoom(upper, updatedRoom);
+  await roomStorage.setRoom(upper, updatedRoom);
     return NextResponse.json({ room: updatedRoom, message: 'Partida terminada. La sala vuelve a estar abierta.' });
   } catch (err) {
     console.error('[End POST] Error:', err);

@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cod
     const upper = raw?.toUpperCase();
     if (!upper) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
-    const room = roomStorage.getRoom(upper);
+  const room = await roomStorage.getRoom(upper);
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
 
     // Bloquear nuevas entradas si ya está jugando
@@ -47,8 +47,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cod
     const uniqueName = resolveUniqueName(desiredName, existingNames, defaultName);
 
     const newPlayer = { id: playerId, name: uniqueName, joinedAt: new Date().toISOString(), cards: [] as any[] };
-    room.players = [...(room.players || []), newPlayer];
-    roomStorage.setRoom(upper, room);
+  room.players = [...(room.players || []), newPlayer];
+  await roomStorage.setRoom(upper, room);
 
     return NextResponse.json({ room, playerId, name: uniqueName, totalPlayers: room.players.length });
   } catch (err) {

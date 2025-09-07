@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from './storage';
 
-function generateRoomCode(): string {
+async function generateRoomCode(): Promise<string> {
   const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   const codeLength = 6;
   let code = '';
@@ -9,7 +9,7 @@ function generateRoomCode(): string {
     const randomIndex = Math.floor(Math.random() * (i + 1 === 0 ? 1 : characters.length));
     code += characters[randomIndex];
   }
-  if (roomStorage.getRoom(code)) return generateRoomCode();
+  if (await roomStorage.getRoom(code)) return generateRoomCode();
   return code;
 }
 
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     try { body = await request.json(); } catch {}
     const desiredName: string | undefined = body?.name;
 
-    const roomCode = generateRoomCode();
+  const roomCode = await generateRoomCode();
     const hostId = crypto.randomUUID();
     const newRoom = {
       code: roomCode,
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     const uniqueName = resolveUniqueName(desiredName, [], defaultName);
     newRoom.players[0].name = uniqueName;
 
-    roomStorage.setRoom(roomCode, newRoom);
+  await roomStorage.setRoom(roomCode, newRoom);
     return NextResponse.json({ code: roomCode, room: newRoom, playerId: hostId, name: uniqueName });
   } catch (error) {
     console.error('[POST] Error:', error);

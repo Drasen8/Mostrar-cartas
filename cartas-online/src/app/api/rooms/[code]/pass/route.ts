@@ -16,7 +16,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
     const upper = raw?.toUpperCase();
     if (!upper) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 
-    const room = roomStorage.getRoom(upper) as RoomRoundState | undefined;
+  const room = await roomStorage.getRoom(upper) as RoomRoundState | undefined;
     if (!room) return NextResponse.json({ error: 'Sala no encontrada' }, { status: 404 });
     if (room.status !== 'playing') return NextResponse.json({ error: 'La partida no está en curso' }, { status: 400 });
     if (!room.turnsStarted) return NextResponse.json({ error: 'Aún no han comenzado los turnos' }, { status: 400 });
@@ -72,8 +72,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
       }
     }
 
-    room.currentTurnPlayerId = nextTurnPlayerId;
-    roomStorage.setRoom(upper, room);
+  room.currentTurnPlayerId = nextTurnPlayerId;
+  await roomStorage.setRoom(upper, room);
 
     return NextResponse.json({
       room,
