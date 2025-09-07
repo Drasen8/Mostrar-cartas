@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from '../storage';
+export const dynamic = 'force-dynamic';
 
 // Helpers para nombres únicos
 function escRe(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

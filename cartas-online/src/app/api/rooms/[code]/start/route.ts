@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from '../../storage';
+export const dynamic = 'force-dynamic';
 import { createSpanishDeck } from '@/lib/game/cards';
 
 // Barajar Fisher–Yates (local a este archivo)

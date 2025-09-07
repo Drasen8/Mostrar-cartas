@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from './storage';
+export const dynamic = 'force-dynamic';
 
 async function generateRoomCode(): Promise<string> {
   const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';

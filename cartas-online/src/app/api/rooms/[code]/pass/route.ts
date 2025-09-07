@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from '../../storage';
+export const dynamic = 'force-dynamic';
 import type { AnyRoom } from '../../storage';
 
 type RoomRoundState = AnyRoom & {

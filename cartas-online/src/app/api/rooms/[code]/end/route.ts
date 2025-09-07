@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from '../../storage';
+export const dynamic = 'force-dynamic';
 import type { AnyPlayer } from '../../storage';
 
 export async function POST(_request: NextRequest, context: { params: Promise<{ code: string }> }) {

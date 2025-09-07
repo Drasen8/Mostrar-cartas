@@ -40,9 +40,18 @@ const mem: Record<string, AnyRoom> = globalThis.__rooms || (globalThis.__rooms =
 
 // Vercel KV driver (optional)
 import { kv } from '@vercel/kv';
+// Map Upstash env vars to KV_* if present (so @vercel/kv works with Upstash integration)
+if (!process.env.KV_URL && process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  process.env.KV_REST_API_URL ||= process.env.UPSTASH_REDIS_REST_URL;
+  process.env.KV_REST_API_TOKEN ||= process.env.UPSTASH_REDIS_REST_TOKEN;
+}
 let kvAvailable = false;
 try {
-  kvAvailable = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+  kvAvailable = Boolean(
+    process.env.KV_URL ||
+    (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) ||
+    (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
+  );
 } catch {
   kvAvailable = false;
 }
@@ -91,6 +100,7 @@ const memStorage: AsyncRoomStorage = {
 };
 
 export const roomStorage: AsyncRoomStorage = kvAvailable ? kvStorage : memStorage;
+export const storageMode: 'kv' | 'memory' = kvAvailable ? 'kv' : 'memory';
 
 // Warn if running on Vercel without KV configured (memory is ephemeral there)
 if (!kvAvailable && process.env.VERCEL) {
