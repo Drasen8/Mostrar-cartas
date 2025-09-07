@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from '../../storage';
 import type { AnyRoom } from '../../storage';
 import type { Card } from '@/types/Card';
@@ -28,9 +28,8 @@ type PlayBody = {
   comboSize?: number;
 };
 
-export async function POST(request: Request, context: { params: { code: string } }) {
+export async function POST(request: NextRequest, { params }: { params: { code: string } }) {
   try {
-    const params = await Promise.resolve(context.params);
     const code = params.code?.toUpperCase();
     if (!code) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 

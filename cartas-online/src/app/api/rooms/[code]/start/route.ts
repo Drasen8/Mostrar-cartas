@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from '../../storage';
 import { createSpanishDeck } from '../../../../../../src/lib/game/cards';
 
@@ -21,9 +21,8 @@ function rankCard(card: any): number {
   return i === -1 ? -1 : i;
 }
 
-export async function POST(_request: Request, context: { params: { code: string } }) {
+export async function POST(_request: NextRequest, { params }: { params: { code: string } }) {
   try {
-    const params = await Promise.resolve(context.params);
     const code = params.code?.toUpperCase();
     if (!code) return NextResponse.json({ error: 'Código vacío' }, { status: 400 });
 

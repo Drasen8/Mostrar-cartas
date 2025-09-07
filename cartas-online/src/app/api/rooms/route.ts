@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { roomStorage } from './storage';
 
 function generateRoomCode(): string {
@@ -33,7 +33,7 @@ function resolveUniqueName(desired: string | undefined, existing: string[], fall
 }
 
 // POST /api/rooms - Crear nueva sala (acepta { name })
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     let body: any = {};
     try { body = await request.json(); } catch {}
@@ -66,6 +66,6 @@ export async function POST(request: Request) {
 }
 
 // GET /api/rooms - No soportado (usar /api/rooms/{code})
-export async function GET() {
+export async function GET(_request: NextRequest) {
   return NextResponse.json({ error: 'Usa /api/rooms/{code} para unirte' }, { status: 405 });
 }
