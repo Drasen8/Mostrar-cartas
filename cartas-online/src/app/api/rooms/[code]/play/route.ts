@@ -5,7 +5,7 @@ import type { Card } from '@/types/Card';
 
 type RoomRoundState = AnyRoom & {
   lastTopPlayedBy?: string;
-  roundTopValue?: number | null;
+  roundTopValue?: Card['value'] | null; // <--- Cambiado aquí
   roundComboSize?: number;
   discardPile?: Card[];
 };
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
     }
 
     const top: Card | null = room.discardPile?.length ? room.discardPile[room.discardPile.length - 1] ?? null : null;
-    const prevValue: number | null = room.roundTopValue ?? (top ? top.value : null);
+    const prevValue: Card['value'] | null = room.roundTopValue ?? (top ? top.value : null); // <--- Cambiado aquí
 
     // Validación turno
     if (room.turnsStarted) {
@@ -127,7 +127,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
         return NextResponse.json({ error: `Debes jugar ${requiredSize} carta(s)` }, { status: 400 });
       }
       if (!singleTwoOros && prevValue != null) {
-        const topRank = rankCard({ value: prevValue, suit: 'x' as Card['suit'] });
+        // Usa el palo de la carta jugada para evitar el error de tipo
+        const topRank = rankCard({ value: prevValue, suit: inputCards[0].suit });
         const playRank = rankCard(inputCards[0]);
         if (playRank < topRank) {
           return NextResponse.json({ error: 'Debes jugar una jugada igual o superior' }, { status: 400 });
@@ -245,7 +246,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
     if (!isTwoOros(inputCards[0]) && newHand.length > 0 && !room.roundAwaitingLead) {
       const requiredSize = room.roundComboSize || inputCards.length || 1;
       const topValue = room.roundTopValue ?? inputCards[0].value;
-      const topRank = rankCard({ value: topValue, suit: 'x' as Card['suit'] });
+      const topRank = rankCard({ value: topValue, suit: inputCards[0].suit });
 
       const finishedSet = new Set(room.finishedOrder || []);
       const opponents = room.players
@@ -260,7 +261,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ co
         for (const c of hand) counts[c.value] = (counts[c.value] || 0) + 1;
         return Object.entries(counts).some(([valStr, cnt]) => {
           const val = Number(valStr) as Card['value'];
-          return cnt >= requiredSize && rankCard({ value: val, suit: 'x' as Card['suit'] }) >= topRank;
+          return cnt >= requiredSize && rankCard({ value: val, suit: inputCards[0].suit }) >= topRank;
         });
       });
 
